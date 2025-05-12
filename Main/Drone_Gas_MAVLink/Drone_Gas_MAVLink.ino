@@ -66,29 +66,32 @@ void setup() {
 }
 
 void loop() {
-  // Example data
-  MQ2_ppm = 123.45;
-  MQ5_ppm = 678.9;
+  MQ2_ppm = get_ppm(MQ2_pin, MQ2_rl, MQ2_ro, MQ2_m, MQ2_b);
+  MQ5_ppm = get_ppm(MQ5_pin, MQ5_rl, MQ5_ro, MQ5_m, MQ5_b);
 
-  // MQ2_ppm = read_ppm(MQ2_pin, MQ2_rl, MQ2_ro, MQ2_m, MQ2_b);
-  // MQ5_ppm = read_ppm(MQ5_pin, MQ5_rl, MQ5_ro, MQ5_m, MQ5_b);
+  Serial.print("MQ2 PPM: ");
+  Serial.println(MQ2_ppm);
+  Serial.print("MQ5 PPM: ");
+  Serial.println(MQ5_ppm);
+  Serial.println("----------\n");
+  delay(500);
   
-  if (!gas_system_init) {
-    gas_system_initialization();
-    digitalWrite(fan_pin, LOW);
-    stop_request = false;
-  } 
-  else {
-    digitalWrite(fan_pin, HIGH);
-    stream_mavlink_message("PPM_MQ2", MQ2_ppm);
-    stream_mavlink_message("PPM_MQ5", MQ5_ppm);
+  // if (!gas_system_init) {
+  //   gas_system_initialization();
+  //   digitalWrite(fan_pin, LOW);
+  //   stop_request = false;
+  // } 
+  // else {
+  //   digitalWrite(fan_pin, HIGH);
+  //   stream_mavlink_message("PPM_MQ2", MQ2_ppm);
+  //   stream_mavlink_message("PPM_MQ5", MQ5_ppm);
 
-  }
+  // }
 
-  if (gas_system_init && !stop_request) {
-    stream_request_rc_channel(false); 
-    stop_request = true;
-  }
+  // if (gas_system_init && !stop_request) {
+  //   stream_request_rc_channel(false); 
+  //   stop_request = true;
+  // }
 
 }
 
