@@ -1,0 +1,12 @@
+ardupilot_log_reader==0.3.1
+pymavlink==2.4.41
+pymavlog==0.4.2
+
+# reference github
+# https://github.com/PyFlightCoach/ardupilot_log_reader
+# https://github.com/rmargar/pymavlog
+# https://github.com/ArduPilot/pymavlink/
+# 
+# reference arduino mavlink
+# https://www.technopolis.tv/blog/2023/07/12/How-to-use-MAVLink-on-ESP32/#fn:fn-2
+# https://github.com/mavlink/mavlink
