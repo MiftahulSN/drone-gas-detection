@@ -8,6 +8,27 @@
 #define RXD_PIN (16)
 #define BAUD_RATE 57600
 
+// ENUM Mission Planning [redundant]
+#define MISSION_TAKEOFF 22
+#define MISSION_DELAY   93
+#define MISSION_LAND    21
+#define MISSION_WP      16
+
+// ENUM Sequence Mission Plan
+#define FIRST_MISSION 1
+#define LAST_MISSION 10
+
+// ENUM Mission Command [empty in library]
+#define MAV_CMD_DO_PAUSE_CONTINUE 193
+
+// ENUM Mav Command
+#define PAUSE 0
+#define CONTINUE 1
+
+// ENUM Gas State
+#define INLET 1
+#define OUTLET 0
+
 // MQ2 Gas Sensor Params Configuration
 const int MQ2_pin  = 26;
 const int MQ2_rl   = 20;
@@ -22,25 +43,39 @@ const float MQ5_ro = 76.93;
 const float MQ5_m  = -0.39949;
 const float MQ5_b  = 0.76076;
 
-float MQ2_ppm;
-float MQ5_ppm;
-
 const int fan_pin = 35;
-bool stop_request = false;
-bool request_check = false;
-bool gas_system_init = false;
+unsigned long last_mill = 0;
+unsigned long frequency = 100;
 
-unsigned long last_time_mil = 0;
-unsigned long interval_mil = 1000;
+struct GPS_coordinate {
+  float lat;
+  float lon;
+};
+
+GPS_coordinate gps;
+
+struct PPM_gas {
+  float MQ2;
+  float MQ5;
+};
+
+PPM_gas ppm;
 
 HardwareSerial SerialMAV(2);
 
+bool is_sampling();
+void gas_state(int fan_state);
 float get_analog(int MQ_sensor);
 float get_ppm(int MQ_sensor, int rl, float ro, float m, float b);
 void stream_heartbeat();
-void stream_mavlink_message();
-void stream_request_rc_channel(bool state); 
-void gas_system_initialization();
+void stream_nval_msg(const char* name, float value);
+void stream_mav_command(int param_1) ;
+int request_sequence_mission();
+GPS_coordinate request_gps_coordinate();
+void sampling_and_stream(int seq); 
+
+// DEBUG
+bool paused = false;
 
 void setup() {
   // Serial Monitor Setup
@@ -66,33 +101,58 @@ void setup() {
 }
 
 void loop() {
-  MQ2_ppm = get_ppm(MQ2_pin, MQ2_rl, MQ2_ro, MQ2_m, MQ2_b);
-  MQ5_ppm = get_ppm(MQ5_pin, MQ5_rl, MQ5_ro, MQ5_m, MQ5_b);
-
-  Serial.print("MQ2 PPM: ");
-  Serial.println(MQ2_ppm);
-  Serial.print("MQ5 PPM: ");
-  Serial.println(MQ5_ppm);
-  Serial.println("----------\n");
-  delay(500);
+  // --- MAIN LOOP --- //
+  // if (is_sampling()) {
+      // executed code 
+  // }
   
-  // if (!gas_system_init) {
-  //   gas_system_initialization();
-  //   digitalWrite(fan_pin, LOW);
-  //   stop_request = false;
-  // } 
-  // else {
-  //   digitalWrite(fan_pin, HIGH);
-  //   stream_mavlink_message("PPM_MQ2", MQ2_ppm);
-  //   stream_mavlink_message("PPM_MQ5", MQ5_ppm);
+  // --- TEST FLIGHT (PAUSE) --- //
+  // attr plan : takeoff (seq1) -> wp_1 (seq2) -> wp_2 (seq3) -> land (seq4)
+  // debug behav : wp_2 -> delay 12s (esp intterupt command) -> land
 
-  // }
+  const int wp_3 = 4; 
+  if ((request_sequence_mission() == wp_3) && !paused) {
+    paused = true;
+    unsigned long start_pause = millis();
+    unsigned long pause_time = 10000;
+    while (millis() - start_pause <= pause_time) {
+      stream_mav_command(PAUSE);
+      request_sequence_mission();
+      delay(100);
+    }
+    unsigned long start_continue = millis();
+    unsigned long continue_time = 2000;
+    while (millis() - start_continue <= continue_time) {
+      stream_mav_command(CONTINUE);
+      request_sequence_mission();
+      delay(100);
+    }
+  }
 
-  // if (gas_system_init && !stop_request) {
-  //   stream_request_rc_channel(false); 
-  //   stop_request = true;
-  // }
+  delay(10);
+}
 
+/*
+  Protector Sampling Sequence
+*/
+bool is_sampling() {
+  uint8_t current_mission = request_sequence_mission();
+  if (current_mission == FIRST_MISSION || current_mission == LAST_MISSION) return false;
+  else return true;
+}
+
+/*
+  Fungsi untuk melakukan millis() pengiriman ppm dan command mission kah (continue or paused)?
+*/
+// void timer() {
+
+// }
+
+/*
+  Fan System for Gas Behaviour
+*/
+void gas_state(int fan_state) {
+  digitalWrite(fan_pin, fan_state);
 }
 
 /*
@@ -102,7 +162,6 @@ float get_analog(int MQ_sensor) {
   uint32_t mV = analogReadMilliVolts(MQ_sensor);
   float adc = (mV * 4095) / 3300;
   adc = roundf(adc * 10.0) / 10.0;
-
   return adc;
 }
 
@@ -116,9 +175,8 @@ float get_ppm(int MQ_sensor, int rl, float ro, float m, float b) {
   float rs = ((3.3 * rl) / v_rl) - rl;
   float ratio = rs / ro;
   float ppm_log = (log10(ratio) - b) / m;
-  float PPM = pow(10, ppm_log);
-  
-  return PPM;
+  float ppm_val = pow(10, ppm_log);
+  return ppm_val;
 }
 
 /*
@@ -146,7 +204,7 @@ void stream_heartbeat() {
 /*
   Stream MQ Gas Sensor via MAVLink to Pixhawk
 */
-void stream_mavlink_message(const char* name, float value) {
+void stream_nval_msg(const char* name, float value) {
   mavlink_message_t msg;
   uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
@@ -164,70 +222,81 @@ void stream_mavlink_message(const char* name, float value) {
 }
 
 /*
-  Request RC Channel Vakue from Pixhawk via MAVLink
+  Stream Mission State Command via MAVLink to Pixhawk
 */
-void stream_request_rc_channel(bool state) {
+void stream_mav_command(int param_1) {
   mavlink_message_t msg;
   uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 
-  if (state == true) {
-    mavlink_msg_request_data_stream_pack(1, 158, &msg, 1, 1,                 
-      MAV_DATA_STREAM_RC_CHANNELS, 10, 1
-    );
-  } 
-  else if (state == false){
-    mavlink_msg_request_data_stream_pack(1, 158, &msg, 1, 1,                 
-      MAV_DATA_STREAM_RC_CHANNELS, 10, 0
-    );
-  }
+  mavlink_msg_command_long_pack(
+    1, 158,                     // system ID, component ID
+    &msg,                       // mavlink messages
+    1, 1,                       // target system ID, target component ID
+    MAV_CMD_DO_PAUSE_CONTINUE,  // mavlink command
+    0,                          // confirmation
+    param_1, 0, 0, 0, 0, 0, 0   // command parameters
+  );
 
   uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
   SerialMAV.write(buf, len);
 }
 
 /*
-  Condition to Start Gas System Initialization
+  Request Current Mission Sequence from Pixhawk via MAVLink
 */
-void gas_system_initialization() {
+int request_sequence_mission() {
+  static int last_mission = 0;
+  mavlink_message_t msg;
+  mavlink_status_t status;
 
-  // using millis() to hold spamming request stream
-  // if (millis() - last_time_mil > interval_mil) {
-  //   stream_request_rc_channel(true);
-  //   last_time_mil = millis();
-  // }
-
-  // using variables to send request stream for once
-  if (!request_check) {
-    stream_request_rc_channel(true);
-    request_check = true;
-  }
-
-  if (SerialMAV.available()) {
-    uint8_t c = SerialMAV.read(); 
-
-    mavlink_message_t msg;
-    mavlink_status_t status;
-
+  while (SerialMAV.available()) {
+    uint8_t c = SerialMAV.read();
     if (mavlink_parse_char(MAVLINK_COMM_0, c, &msg, &status)) {
-      if (msg.msgid == MAVLINK_MSG_ID_RC_CHANNELS_RAW) {
-        mavlink_rc_channels_raw_t rc_channels;
-        mavlink_msg_rc_channels_raw_decode(&msg, &rc_channels);
-
-        // Fit the channel that used for switch mode
-        uint16_t pwm_value = rc_channels.chan1_raw;
-        uint16_t threshold = 1500;
-
-        // This is would be deleted soon
-        Serial.print("PWM Value : ");
-        Serial.println(pwm_value);
-
-        if (pwm_value < threshold) {
-          gas_system_init = false;
-        } 
-        else if (pwm_value >= threshold) {
-          gas_system_init = true;
-        }
+      if (msg.msgid == MAVLINK_MSG_ID_MISSION_CURRENT) {
+        mavlink_mission_current_t mission;
+        mavlink_msg_mission_current_decode(&msg, &mission);
+        last_mission = mission.seq;
       }
     }
+  }
+  return last_mission;
+}
+
+/*
+  Request GPS Lattitude and Longitude from Pixhawk via MAVLink
+*/
+GPS_coordinate request_gps_coordinate() {
+  static GPS_coordinate coord = {0.0, 0.0};
+  mavlink_message_t msg;
+  mavlink_status_t status;
+
+  while (SerialMAV.available()) {
+    uint8_t c = SerialMAV.read();
+    if (mavlink_parse_char(MAVLINK_COMM_0, c, &msg, &status)) {
+      if (msg.msgid == MAVLINK_MSG_ID_GPS_RAW_INT) {
+        mavlink_gps_raw_int_t gps;
+        mavlink_msg_gps_raw_int_decode(&msg, &gps);
+        coord.lat = gps.lat / 1e7;
+        coord.lon = gps.lon / 1e7;
+      }
+    }
+  }
+  return coord;
+}
+
+void sampling_and_stream(int seq) {
+  gas_state(INLET);
+  ppm.MQ2 = get_ppm(MQ2_pin, MQ2_rl, MQ2_ro, MQ2_m, MQ2_b);
+  ppm.MQ5 = get_ppm(MQ5_pin, MQ5_rl, MQ5_ro, MQ5_m, MQ5_b);
+  if (millis() - last_mill >= frequency) {
+    char name_MQ2[10];
+    char name_MQ5[10];
+    snprintf(name_MQ2, sizeof(name_MQ2), "MQ2-%d", seq);
+    snprintf(name_MQ5, sizeof(name_MQ5), "MQ5-%d", seq);
+
+    stream_nval_msg(name_MQ2, ppm.MQ2);
+    stream_nval_msg(name_MQ5, ppm.MQ5);
+
+    last_mill = millis();
   }
 }
