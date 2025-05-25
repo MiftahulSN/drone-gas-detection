@@ -30,6 +30,10 @@ class PixhawkLogger(MavLog):
         timestamp = TimeUS / 1_000
         return pd.to_datetime(timestamp, unit='ms')
 
+    def get_messages(self):
+        self.message = 'MSG'
+        return self.get_field('Message')
+
     def get_gps(self):
         self.message = 'GPS'
         gps = pd.DataFrame({ 
@@ -58,7 +62,7 @@ class PixhawkLogger(MavLog):
 
 
 if __name__ == '__main__':
-    path = f"{os.getcwd()}/Main/Drone_Log_Handler/Log_File/Example/test_1.bin"
+    path = f"{os.getcwd()}/Main/Drone_Log_Handler/Log_File/Example/statustext_2.bin"
 
     log = PixhawkLogger(filepath=path, message='NVAL')
 
@@ -67,3 +71,7 @@ if __name__ == '__main__':
 
     ppm = log.get_ppm()
     print(ppm)
+
+    msg = log.get_messages()
+    for msg in msg:
+        print(msg)
