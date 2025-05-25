@@ -94,7 +94,6 @@ HardwareSerial SerialMAV(2);
 
 bool mission_sampling(uint8_t current_mission);
 bool request_mission_reached(uint8_t* mission_sequence);
-uint8_t request_sequence_mission(uint8_t* mission_sequence);
 float get_analog(uint8_t MQ_sensor);
 float get_ppm(uint8_t MQ_sensor, uint8_t rl, float ro, float m, float b);
 void loop_debug();
@@ -106,6 +105,7 @@ void request_all_data(uint8_t state);
 void sampling_interval(uint8_t sequence);
 void stream_mav_mission_cmd(uint8_t state);
 void stream_nval_msg(const char* name, float value);
+void request_sequence_mission(uint8_t* mission_sequence);
 void stream_text_msg(const char* text, uint8_t severity = MAV_SEVERITY_DEBUG);
 void messages_interval(uint8_t sequence, uint8_t severity = MAV_SEVERITY_DEBUG);
 void messages_interval(const char* text, uint8_t severity = MAV_SEVERITY_DEBUG);
@@ -183,12 +183,11 @@ void loop() {
 */
 void loop_debug() {
   const uint8_t target_wp = 3;
-  static uint8_t seq = 0;
   static bool paused = false;
-  seq = request_sequence_mission(&seq);
-  messages_interval(seq);
+  request_sequence_mission(&mission_sequence);
+  messages_interval(mission_sequence);
 
-  if (seq == target_wp && !paused) {
+  if (mission_sequence == target_wp && !paused) {
     paused = true;
     start_sampling = millis();
     while (millis() - start_sampling <= sampling_time) {
@@ -208,6 +207,7 @@ void loop_debug() {
     while (millis() - start_cmd <= cmd_time) {
       command_interval(CONTINUE, 50);
       heartbeat_interval();
+      paused = false;
     }
   }
 }
@@ -231,7 +231,7 @@ void gas_status(uint8_t fan_state) {
 }
 
 /*
-  Read Analog from MQ Sensor
+  Read Analog via mV from MQ Sensor
 */
 float get_analog(uint8_t MQ_sensor) {
   uint32_t mV = analogReadMilliVolts(MQ_sensor);
@@ -379,7 +379,7 @@ void request_all_data(uint8_t state) {
 /*
   Request Current Sequence of Mission Plan from Pixhawk via MAVLink
 */
-uint8_t request_sequence_mission(uint8_t* mission_sequence) {
+void request_sequence_mission(uint8_t* mission_sequence) {
   // request_all_data(START);
   mavlink_message_t msg;
   mavlink_status_t status;
@@ -393,12 +393,10 @@ uint8_t request_sequence_mission(uint8_t* mission_sequence) {
           mavlink_mission_current_t mission;
           mavlink_msg_mission_current_decode(&msg, &mission);
           *mission_sequence =  mission.seq;
-          return *mission_sequence;
         }
       }
     }
   }
-  return *mission_sequence;
 }
 
 /*

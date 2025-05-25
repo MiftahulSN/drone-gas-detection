@@ -21,9 +21,14 @@ class PixhawkLogger(MavLog):
         return self.get_message()[field]
     
     @staticmethod
-    def get_time(TimeUS):
+    def get_time_s(TimeUS):
         timestamp = TimeUS / 1_000_000
         return pd.to_datetime(timestamp, unit='s')
+
+    @staticmethod
+    def get_time_ms(TimeUS):
+        timestamp = TimeUS / 1_000
+        return pd.to_datetime(timestamp, unit='ms')
 
     def get_gps(self):
         self.message = 'GPS'
