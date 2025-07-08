@@ -23,7 +23,8 @@ class ArdupilotLogger(Ardupilot):
 
 
 if __name__ == '__main__':
-    filepath = f"{os.getcwd()}/Drone_Log_Handler/Log_File/Example/nval_1.bin"
+    print(os.getcwd())
+    filepath = f"{os.getcwd()}\Main\Drone_Log_Handler/Log_File/Example/nval_1.bin"
     
     log = ArdupilotLogger(
         filepath=filepath,

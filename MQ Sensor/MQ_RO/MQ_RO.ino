@@ -1,15 +1,13 @@
 #define MQ_RL 20
+#define MQ_VC 3.3
 
-const int MQ2_pin = 26;
-const int MQ5_pin = 25;
+const int MQ2_pin = 27;
+const int MQ5_pin = 26;
 
 float MQ2_clean_air = 9.7;
 float MQ5_clean_air = 6.478;
 float MQ2_ro;
 float MQ5_ro;
-
-const int num_samples = 50;
-const unsigned long frequency = 100;
 
 void setup() {
   Serial.begin(9600);
@@ -50,7 +48,7 @@ void loop() {
 
   Serial.println("-------------\n");
 
-  delay(500);
+  delay(1000);
 }
 
 float get_analog(int MQ_sensor) {
@@ -62,24 +60,23 @@ float get_analog(int MQ_sensor) {
 }
 
 float get_ro(int MQ_sensor, float clean_air) {
-  float total_ro = 0;
-  int sample_count = 0;
-  unsigned long last_sample_time = millis();
+  float raw = get_analog(MQ_sensor);
+  float v_out = raw * (MQ_VC / 4095.0);
+  float rs = ((MQ_VC * MQ_RL) / v_out) - MQ_RL;
+  float ro = rs / clean_air;
 
-  while (sample_count < num_samples) {
-    if (millis() - last_sample_time >= frequency) {
-      float raw = get_analog(MQ_sensor);
-      float v_out = raw * (3.3 / 4095.0);
-      float rs = ((3.3 * MQ_RL) / v_out) - MQ_RL;
-      float ro = rs / clean_air;
-      total_ro += ro;
+  // Serial.print("Vc  = ");
+  // Serial.println(MQ_VC);
+  // Serial.print("Vrl = ");
+  // Serial.println(v_out);
+  // Serial.print("Rl  = ");
+  // Serial.println(MQ_RL);
+  // Serial.print("Rs  = ");
+  // Serial.println(rs);
+  // Serial.print("Ro  = ");
+  // Serial.println(ro);
 
-      sample_count++;
-      last_sample_time = millis();
-    }
-  }
-
-  return total_ro / num_samples;
+  return ro;
 }
 
 void print_ro(String sensor, float ro_val) {
